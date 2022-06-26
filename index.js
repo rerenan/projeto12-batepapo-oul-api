@@ -2,6 +2,7 @@ import express, { json } from 'express';
 import cors from 'cors'
 import {MongoClient } from 'mongodb';
 import joi from 'joi';
+import dayjs from 'dayjs';
 import dotenv from 'dotenv';
 
 dotenv.config()
@@ -22,13 +23,6 @@ const participantSchema = joi.object({
 })
 
 const messageSchema = joi.object({
-    from: joi.string().required().custom( async (value, helper)=>{
-        const lala = await db.collection('participants').findOne({name: value})
-        if(lala){
-            return true;
-        }
-        return helper.message("User not found")
-    }),
     to: joi.string().required(),
     text: joi.string().required(),
     type:joi.any().allow("message","private_message")
@@ -71,14 +65,24 @@ app.get('/participants', async (req,res)=>{
 })
 
 app.post('/messages', async (req,res)=>{
-    const message = {...req.body, from: req.headers.user}
-    const validation = messageSchema.validate(message)
+    const validation = messageSchema.validate(req.body,{abortEarly: false})
+    const userVerify = await db.collection('participants').findOne({name: req.headers.user})
     if(validation.error){
-        console.log(validation.error.details.map((item)=>item.message))
         res.status(422).send(validation.error.details.map((item)=>item.message))
         return;
     }
-  
+    if(!userVerify){
+        res.status(422).send("User Disconnected, please reload page.")
+        return;
+    }
+    try {
+        const message = {...req.body, from: req.headers.user, time:dayjs().format('HH:MM:ss')}
+        await db.collection('messages').insertOne(message);
+        res.sendStatus(201)
+    } catch (err) {
+        console.log(err)
+        res.sendStatus(500)
+    }
 })
 
 
