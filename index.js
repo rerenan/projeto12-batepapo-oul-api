@@ -18,6 +18,7 @@ mongoClient.connect(()=> {
 })
 
 
+
 const participantSchema = joi.object({
     name: joi.string().required()
 })
@@ -29,6 +30,22 @@ const messageSchema = joi.object({
 
 })
 
+setInterval(removeInactiveUsers,15000);
+
+async function removeInactiveUsers(){
+    const usersInactives = await db.collection('participants').find({lastStatus:{$lt: Date.now()-10000}}).toArray()
+    await db.collection('participants').deleteMany({lastStatus:{$lt: (Date.now()-10000)}})
+    usersInactives.forEach( async (user)=>{
+        db.collection("messages").insertOne({
+            from: user.name,
+            to: 'Todos',
+            text: 'sai da sala...',
+            type: 'status', 
+            time: dayjs().format('HH:MM:ss')
+        })
+    })
+
+}
 app.post('/participants',async (req,res)=>{
 
     const validation = participantSchema.validate(req.body,{abortEarly: false})
@@ -46,6 +63,13 @@ app.post('/participants',async (req,res)=>{
     try{
         const participant = {...req.body, lastStatus: Date.now()}
         await db.collection('participants').insertOne(participant);
+        await db.collection("messages").insertOne({
+            from: req.body.name,
+            to: 'Todos', 
+            text: 'entra na sala...', 
+            type: 'status', 
+            time: dayjs().format('HH:MM:ss')
+        })
         res.sendStatus(201);
     }catch(err){
       console.log(err);
@@ -85,5 +109,32 @@ app.post('/messages', async (req,res)=>{
     }
 })
 
+app.get('/messages', async (req,res)=>{
+    try{
+        const messages = await db.collection('messages').find().toArray();
+        res.send(messages);
+    }catch(err){
+        console.log(err)
+        res.sendStatus(500)
+    }
+})
+
+app.post('/status', async (req,res)=>{
+    const user = req.headers.user;
+    const userVerify = await db.collection('participants').findOne({name: user})
+    if(!userVerify){
+        res.sendStatus(404);
+        return;
+    }
+    try{
+        await db.collection('participants').updateOne({name: user},{$set: {lastStatus: Date.now()}})
+        res.sendStatus(200);
+    }catch(err){
+        console.log(err)
+        res.sendStatus(500)
+    }
+    
+
+})
 
 app.listen(5000);
